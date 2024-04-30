@@ -36,6 +36,8 @@ import static java.util.Objects.requireNonNull;
 
 public final class CassandraQueryRunner
 {
+    public static final String TPCH_SCHEMA = "tpch";
+
     private CassandraQueryRunner() {}
 
     static {
@@ -45,7 +47,12 @@ public final class CassandraQueryRunner
 
     public static Builder builder(CassandraServer server)
     {
-        return new Builder(server);
+        return new Builder(server, TPCH_SCHEMA);
+    }
+
+    public static Builder builder(CassandraServer server, String schema)
+    {
+        return new Builder(server, schema);
     }
 
     public static final class Builder
@@ -55,11 +62,11 @@ public final class CassandraQueryRunner
         private final Map<String, String> connectorProperties = new HashMap<>();
         private List<TpchTable<?>> initialTables = ImmutableList.of();
 
-        private Builder(CassandraServer server)
+        private Builder(CassandraServer server, String schema)
         {
             super(testSessionBuilder()
                     .setCatalog("cassandra")
-                    .setSchema("tpch")
+                    .setSchema(schema)
                     .build());
             this.server = requireNonNull(server, "server is null");
             connectorProperties.put("cassandra.contact-points", server.getHost());
