@@ -61,4 +61,20 @@ public abstract class BaseTestTableFormats
         assertThat(onTrino().executeQuery(format("SELECT * FROM %1$s.default.%2$s", getCatalogName(), tableName))).hasNoRows();
         onTrino().executeQuery(format("DROP TABLE %1$s.default.%2$s", getCatalogName(), tableName));
     }
+
+    protected void testCreateAndInsertTable(String schemaLocation)
+    {
+        String tableName = "table_write_operations_" + randomNameSuffix();
+        try {
+            onTrino().executeQuery(format("CREATE SCHEMA %1$s.test WITH (location = '%2$s')", getCatalogName(), schemaLocation));
+            onTrino().executeQuery(format("CREATE TABLE %1$s.test.%2$s (a_bigint bigint, a_varchar varchar)", getCatalogName(), tableName));
+
+            onTrino().executeQuery(format("INSERT INTO %1$s.test.%2$s VALUES (1, 'hello world')".formatted(getCatalogName(), tableName)));
+            assertThat(onTrino().executeQuery("SELECT * FROM %1$s.test.%2$s".formatted(getCatalogName(), tableName))).containsOnly(row(1L, "hello world"));
+        }
+        finally {
+            onTrino().executeQuery("DROP TABLE %1$s.test.%2$s".formatted(getCatalogName(), tableName));
+            onTrino().executeQuery("DROP SCHEMA %1$s.test".formatted(getCatalogName()));
+        }
+    }
 }
