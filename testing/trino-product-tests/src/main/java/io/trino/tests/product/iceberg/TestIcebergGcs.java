@@ -46,9 +46,20 @@ public class TestIcebergGcs
         super.testPathContainsSpecialCharacter(warehouseDirectory, "partitioning");
     }
 
+    @Test(groups = {ICEBERG_GCS, PROFILE_SPECIFIC_TESTS})
+    public void testSparkReadingTrinoData()
+    {
+        super.testSparkCompatibilityOnTrinoCreatedTable(warehouseDirectory);
+    }
+
     @Override
     protected String getCatalogName()
     {
         return "iceberg";
+    }
+
+    protected String getSparkCatalog()
+    {
+        return "iceberg_test";
     }
 }
