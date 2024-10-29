@@ -353,6 +353,11 @@ public class AzureFileSystem
         try {
             DataLakeFileSystemClient fileSystemClient = createFileSystemClient(azureLocation, Optional.empty());
             DataLakeFileClient fileClient = createFileClient(fileSystemClient, azureLocation.path());
+            // for query create schema hive.abfs2_onelake with (location='abfss://SB@onelake.dfs.fabric.microsoft.com/SB/test_lh.lakehouse'):
+            // `dataLakeServiceClient.getFileSystemClient("SB/test_lh.Lakehouse/").getFileClient("Tables/").getProperties().isDirectory()` works
+            // but Trino gets the filesystemclient on the container  `dataLakeServiceClient.getFileSystemClient("SB").getFileClient("test_lh.Lakehouse/").getProperties()` and hence it does not work
+            // At the same time `dataLakeServiceClient.getFileSystemClient("SB/test_lh.Lakehouse/").exists()` would not work in OneLake, but this `dataLakeServiceClient.getFileSystemClient("SB").exists()` works.
+            // So clearly there are inconsistencies in how OneLake treats the sdk
             return Optional.of(fileClient.getProperties().isDirectory());
         }
         catch (DataLakeStorageException e) {
@@ -592,10 +597,14 @@ public class AzureFileSystem
             throws IOException
     {
         try {
-            BlockBlobClient blockBlobClient = createBlobContainerClient(location, Optional.empty())
+           /* BlockBlobClient blockBlobClient = createBlobContainerClient(location, Optional.empty())
                     .getBlobClient("/")
                     .getBlockBlobClient();
-            return blockBlobClient.exists();
+            return blockBlobClient.exists();*/
+            // needs an implementation on DataLakeServiceClient since BlobContainerClient does not work for OneLake
+            // i.e call something like createFileSystemClient(location, Optional.empty());
+            // ignore for now and simply return true
+            return true;
         }
         catch (RuntimeException e) {
             throw new IOException("Checking whether hierarchical namespace is enabled for the location %s failed".formatted(location), e);

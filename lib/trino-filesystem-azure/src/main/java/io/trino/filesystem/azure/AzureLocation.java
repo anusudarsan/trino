@@ -27,7 +27,7 @@ class AzureLocation
     private static final String INVALID_WASB_LOCATION_MESSAGE = "Invalid Azure WASB location. Expected form is 'wasb[s]://[<containerName>@]<accountName>.blob.<endpoint>/<filePath>': %s";
 
     // https://learn.microsoft.com/en-us/azure/azure-resource-manager/management/resource-name-rules
-    private static final CharMatcher CONTAINER_VALID_CHARACTERS = CharMatcher.inRange('a', 'z').or(CharMatcher.inRange('0', '9')).or(CharMatcher.is('-'));
+    private static final CharMatcher CONTAINER_VALID_CHARACTERS = CharMatcher.inRange('a', 'z').or(CharMatcher.inRange('A', 'Z')).or(CharMatcher.inRange('0', '9')).or(CharMatcher.is('-'));
     private static final CharMatcher STORAGE_ACCOUNT_VALID_CHARACTERS = CharMatcher.inRange('a', 'z').or(CharMatcher.inRange('0', '9'));
 
     private final Location location;
