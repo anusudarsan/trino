@@ -25,6 +25,7 @@ import io.trino.testing.QueryRunner;
 import io.trino.testing.TestingConnectorBehavior;
 import io.trino.testing.sql.TestTable;
 import org.intellij.lang.annotations.Language;
+import org.jetbrains.annotations.NotNull;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
@@ -42,6 +43,7 @@ import java.util.OptionalInt;
 
 import static com.datastax.oss.driver.api.core.data.ByteUtils.toHexString;
 import static com.google.common.io.BaseEncoding.base16;
+import static io.trino.plugin.cassandra.CassandraQueryRunner.TPCH_SCHEMA;
 import static io.trino.plugin.cassandra.TestCassandraTable.clusterColumn;
 import static io.trino.plugin.cassandra.TestCassandraTable.columnsValue;
 import static io.trino.plugin.cassandra.TestCassandraTable.generalColumn;
@@ -194,7 +196,7 @@ public class TestCassandraConnectorTest
     public void testShowCreateTable()
     {
         assertThat(computeActual("SHOW CREATE TABLE orders").getOnlyValue())
-                .isEqualTo("CREATE TABLE cassandra.tpch.orders (\n" +
+                .isEqualTo(format("CREATE TABLE cassandra.%s.orders (\n" +
                         "   orderkey bigint,\n" +
                         "   custkey bigint,\n" +
                         "   orderstatus varchar,\n" +
@@ -204,7 +206,7 @@ public class TestCassandraConnectorTest
                         "   clerk varchar,\n" +
                         "   shippriority integer,\n" +
                         "   comment varchar\n" +
-                        ")");
+                        ")", getSchema()));
     }
 
     @Test
@@ -575,29 +577,29 @@ public class TestCassandraConnectorTest
     void testInsertIntoValuesToCassandraMaterializedView()
     {
         String materializedViewName = "test_insert_into_mv" + randomNameSuffix();
-        onCassandra("CREATE MATERIALIZED VIEW tpch." + materializedViewName + " AS " +
+        onCassandra(format("CREATE MATERIALIZED VIEW %s.%s AS " +
                 "SELECT * FROM tpch.nation " +
                 "WHERE nationkey IS NOT NULL " +
-                "PRIMARY KEY (id, nationkey)");
+                "PRIMARY KEY (id, nationkey)", getSchema(), materializedViewName));
 
-        assertContainsEventually(() -> computeActual("SHOW TABLES FROM cassandra.tpch"), resultBuilder(getSession(), VARCHAR)
+        assertContainsEventually(() -> computeActual("SHOW TABLES FROM cassandra." + getSchema()), resultBuilder(getSession(), VARCHAR)
                 .row(materializedViewName)
                 .build(), new Duration(1, MINUTES));
 
         assertQueryFails(
-                "INSERT INTO tpch.%s (nationkey) VALUES (null)".formatted(materializedViewName),
+                "INSERT INTO %s.%s (nationkey) VALUES (null)".formatted(getSchema(), materializedViewName),
                 "Inserting into materialized views not yet supported");
         assertQueryFails(
-                "DROP TABLE tpch." + materializedViewName,
+                "DROP TABLE %s.%s".formatted(getSchema(), materializedViewName),
                 "Dropping materialized views not yet supported");
 
-        onCassandra("DROP MATERIALIZED VIEW tpch." + materializedViewName);
+        onCassandra("DROP MATERIALIZED VIEW %s.%s".formatted(getSchema(), materializedViewName);
     }
 
     @Test
     void testInvalidTable()
     {
-        String tableName = "cassandra.tpch.bogus";
+        String tableName = "cassandra.%s.bogus".formatted(getSchema());
         assertQueryFails("SELECT * FROM " + tableName, ".* Table '%s' does not exist".formatted(tableName));
     }
 
@@ -958,35 +960,35 @@ public class TestCassandraConnectorTest
         String table = "test_cluster_key_" + randomNameSuffix();
 
         if (withClusteringKey) {
-            onCassandra("CREATE TABLE tpch." + table + "(pk1_col text, pk2_col text, idx1_col text, idx2_col text, cluster_col tinyint, PRIMARY KEY ((pk1_col, pk2_col), cluster_col)) WITH CLUSTERING ORDER BY (cluster_col ASC)");
+            onCassandra("CREATE TABLE %s.%s (pk1_col text, pk2_col text, idx1_col text, idx2_col text, cluster_col tinyint, PRIMARY KEY ((pk1_col, pk2_col), cluster_col)) WITH CLUSTERING ORDER BY (cluster_col ASC)".formatted(getSchema(), table));
         }
         else {
-            onCassandra("CREATE TABLE tpch." + table + "(pk1_col text, pk2_col text, idx1_col text, idx2_col text, cluster_col tinyint, PRIMARY KEY ((pk1_col, pk2_col)))");
+            onCassandra("CREATE TABLE %s.%s (pk1_col text, pk2_col text, idx1_col text, idx2_col text, cluster_col tinyint, PRIMARY KEY ((pk1_col, pk2_col)))".formatted(getSchema(), table));
         }
 
-        onCassandra("CREATE INDEX ON tpch." + table + " (idx1_col)");
-        onCassandra("CREATE INDEX ON tpch." + table + " (idx2_col)");
+        onCassandra("CREATE INDEX ON %s.%s (idx1_col)".formatted(getSchema(), table));
+        onCassandra("CREATE INDEX ON %s.%s (idx2_col)".formatted(getSchema(), table));
 
-        onCassandra("INSERT INTO tpch." + table + "(pk1_col, pk2_col, cluster_col, idx1_col, idx2_col) VALUES('v11', 'v21', 1, 'value1', 'value21')");
-        onCassandra("INSERT INTO tpch." + table + "(pk1_col, pk2_col, cluster_col, idx1_col, idx2_col) VALUES('v11', 'v22', 2, 'value1', 'value22')");
-        onCassandra("INSERT INTO tpch." + table + "(pk1_col, pk2_col, cluster_col, idx1_col, idx2_col) VALUES('v12', 'v23', 1, 'value2', 'value23')");
+        onCassandra("INSERT INTO %s.%s (pk1_col, pk2_col, cluster_col, idx1_col, idx2_col) VALUES('v11', 'v21', 1, 'value1', 'value21')".formatted(getSchema(), table));
+        onCassandra("INSERT INTO %s.%s (pk1_col, pk2_col, cluster_col, idx1_col, idx2_col) VALUES('v11', 'v22', 2, 'value1', 'value22')".formatted(getSchema(), table));
+        onCassandra("INSERT INTO %s.%s (pk1_col, pk2_col, cluster_col, idx1_col, idx2_col) VALUES('v12', 'v23', 1, 'value2', 'value23')".formatted(getSchema(), table));
 
-        assertQuery("SELECT * FROM tpch." + table, "VALUES ('v11', 'v21', 1, 'value1', 'value21'), ('v11', 'v22', 2, 'value1', 'value22'), ('v12', 'v23', 1, 'value2', 'value23')");
+        assertQuery("SELECT * FROM %s.%s VALUES ('v11', 'v21', 1, 'value1', 'value21'), ('v11', 'v22', 2, 'value1', 'value22'), ('v12', 'v23', 1, 'value2', 'value23')".formatted(getSchema(), table));
 
         assertEventually(() -> {
             // Wait for indexes to be created successfully.
-            assertThat(query("SELECT * FROM tpch." + table + " WHERE idx2_col = 'value1'")).isFullyPushedDown(); // Verify single indexed column predicate is pushed down.
+            assertThat(query("SELECT * FROM %s.%s WHERE idx2_col = 'value1'".formatted(getSchema(), table))).isFullyPushedDown(); // Verify single indexed column predicate is pushed down.
         });
 
         // Execute a query on Trino with where clause having all the secondary key columns and another column (potentially a cluster key column)
-        assertQuery("SELECT * FROM tpch." + table + " WHERE idx1_col = 'value1' AND idx2_col = 'value21' AND cluster_col = 1", "VALUES ('v11', 'v21', 1, 'value1', 'value21')");
+        assertQuery("SELECT * FROM %s.%s WHERE idx1_col = 'value1' AND idx2_col = 'value21' AND cluster_col = 1".formatted(getSchema(), table), "VALUES ('v11', 'v21', 1, 'value1', 'value21')"));
         // Execute a query on Trino with where clause not having all the secondary key columns and another column (potentially a cluster key column)
-        assertQuery("SELECT * FROM tpch." + table + " WHERE idx1_col = 'value1' AND cluster_col = 1", "VALUES ('v11', 'v21', 1, 'value1', 'value21')");
+        assertQuery("SELECT * FROM %s.%s WHERE idx1_col = 'value1' AND cluster_col = 1".formatted(getSchema(), table), "VALUES ('v11', 'v21', 1, 'value1', 'value21')");
 
-        onCassandra("DROP INDEX tpch." + table + "_idx1_col_idx");
-        onCassandra("DROP INDEX tpch." + table + "_idx2_col_idx");
+        onCassandra("DROP INDEX %s.%s_idx1_col_idx".formatted(getSchema(), table));
+        onCassandra("DROP INDEX %s.%s_idx2_col_idx".formatted(getSchema(), table));
 
-        onCassandra("DROP TABLE tpch." + table);
+        onCassandra("DROP TABLE %s.%s".formatted(getSchema(), table));
     }
 
     @Test
@@ -1147,17 +1149,17 @@ public class TestCassandraConnectorTest
         String tableName = "test_udt_in_array" + randomNameSuffix();
         String userDefinedTypeName = "test_udt" + randomNameSuffix();
 
-        session.execute("CREATE TYPE tpch." + userDefinedTypeName + "(udt_field bigint)");
-        session.execute("CREATE TABLE tpch." + tableName + "(id bigint, col list<frozen<tpch." + userDefinedTypeName + ">>, primary key (id))");
-        session.execute("INSERT INTO tpch." + tableName + "(id, col) values (1, [{udt_field: 10}])");
-        assertContainsEventually(() -> computeActual("SHOW TABLES FROM cassandra.tpch"), resultBuilder(getSession(), VARCHAR)
+        session.execute("CREATE TYPE %s.%s(udt_field bigint)".formatted(getSchema(), userDefinedTypeName));
+        session.execute("CREATE TABLE %1$s.%2$s(id bigint, col list<frozen<%1$s.%3$s>>, primary key (id))".formatted(getSchema(), tableName, userDefinedTypeName));
+        session.execute("INSERT INTO %s.%s(id, col) values (1, [{udt_field: 10}])".formatted(getSchema(), tableName));
+        assertContainsEventually(() -> computeActual("SHOW TABLES FROM cassandra." + getSchema()), resultBuilder(getSession(), VARCHAR)
                 .row(tableName)
                 .build(), new Duration(1, MINUTES));
 
         assertQuery("SELECT * FROM " + tableName, "VALUES (1, '[\"{udt_field:10}\"]')");
 
-        session.execute("DROP TABLE tpch." + tableName);
-        session.execute("DROP TYPE tpch." + userDefinedTypeName);
+        session.execute("DROP TABLE %s.%s".formatted(getSchema(), tableName));
+        session.execute("DROP TYPE %s.%s".formatted(getSchema(), tableName));
     }
 
     @Test
@@ -1166,17 +1168,17 @@ public class TestCassandraConnectorTest
         String tableName = "test_udt_in_map" + randomNameSuffix();
         String userDefinedTypeName = "test_udt" + randomNameSuffix();
 
-        session.execute("CREATE TYPE tpch." + userDefinedTypeName + "(udt_field bigint)");
-        session.execute("CREATE TABLE tpch." + tableName + "(id bigint, col map<frozen<tpch." + userDefinedTypeName + ">, frozen<tpch." + userDefinedTypeName + ">>, primary key (id))");
-        session.execute("INSERT INTO tpch." + tableName + "(id, col) values (1, {{udt_field: 10}: {udt_field: -10}})");
-        assertContainsEventually(() -> computeActual("SHOW TABLES FROM cassandra.tpch"), resultBuilder(getSession(), VARCHAR)
+        session.execute("CREATE TYPE %s.%s(udt_field bigint)".formatted(getSchema(), userDefinedTypeName));
+        session.execute("CREATE TABLE %1$s.%2$s(id bigint, col map<frozen<%1$s.%3$s>, frozen<%1$s.%3$s>>, primary key (id))".formatted(getSchema(), tableName, userDefinedTypeName));
+        session.execute("INSERT INTO %s.%s(id, col) values (1, {{udt_field: 10}: {udt_field: -10}})".formatted(getSchema(), tableName));
+        assertContainsEventually(() -> computeActual("SHOW TABLES FROM cassandra." + getSchema()), resultBuilder(getSession(), VARCHAR)
                 .row(tableName)
                 .build(), new Duration(1, MINUTES));
 
         assertQuery("SELECT * FROM " + tableName, "VALUES (1, '{\"{udt_field:10}\":\"{udt_field:-10}\"}')");
 
-        session.execute("DROP TABLE tpch." + tableName);
-        session.execute("DROP TYPE tpch." + userDefinedTypeName);
+        session.execute("DROP TABLE %s.%s".formatted(getSchema(), tableName));
+        session.execute("DROP TYPE %s.%s".formatted(getSchema(), userDefinedTypeName));
     }
 
     @Test
@@ -1185,17 +1187,17 @@ public class TestCassandraConnectorTest
         String tableName = "test_udt_in_set" + randomNameSuffix();
         String userDefinedTypeName = "test_udt" + randomNameSuffix();
 
-        session.execute("CREATE TYPE tpch." + userDefinedTypeName + "(udt_field bigint)");
-        session.execute("CREATE TABLE tpch." + tableName + "(id bigint, col set<frozen<tpch." + userDefinedTypeName + ">>, primary key (id))");
-        session.execute("INSERT INTO tpch." + tableName + "(id, col) values (1, {{udt_field: 10}})");
-        assertContainsEventually(() -> computeActual("SHOW TABLES FROM cassandra.tpch"), resultBuilder(getSession(), VARCHAR)
+        session.execute("CREATE TYPE %s.%s(udt_field bigint)".formatted(getSchema(), userDefinedTypeName));
+        session.execute("CREATE TABLE %1$s.%2$s(id bigint, col set<frozen<%1$s.%3$s>>, primary key (id))".formatted(getSchema(), tableName, userDefinedTypeName));
+        session.execute("INSERT INTO %s.%s(id, col) values (1, [{udt_field: 10}])".formatted(getSchema(), tableName));
+        assertContainsEventually(() -> computeActual("SHOW TABLES FROM cassandra." + getSchema()), resultBuilder(getSession(), VARCHAR)
                 .row(tableName)
                 .build(), new Duration(1, MINUTES));
 
         assertQuery("SELECT * FROM " + tableName, "VALUES (1, '[\"{udt_field:10}\"]')");
 
-        session.execute("DROP TABLE tpch." + tableName);
-        session.execute("DROP TYPE tpch." + userDefinedTypeName);
+        session.execute("DROP TABLE %s.%s".formatted(getSchema(), tableName));
+        session.execute("DROP TYPE %s.%s".formatted(getSchema(), userDefinedTypeName));
     }
 
     @Test
@@ -1220,17 +1222,17 @@ public class TestCassandraConnectorTest
                 ImmutableList.of(generalColumn("id", "int"), generalColumn("data", "int"), partitionColumn("key", "int")),
                 ImmutableList.of("1, 10, 100", "2, 20, 200", "3, 30, 300"))) {
             String mvName = "test_clustering_mv" + randomNameSuffix();
-            onCassandra("CREATE MATERIALIZED VIEW tpch." + mvName + " AS " +
+            onCassandra(format("CREATE MATERIALIZED VIEW %s.%s AS " +
                     "SELECT * FROM " + table.getTableName() + " WHERE id IS NOT NULL " +
                     "PRIMARY KEY (id, key) " +
-                    "WITH CLUSTERING ORDER BY (id DESC)");
+                    "WITH CLUSTERING ORDER BY (id DESC)", getSchema(), mvName));
 
-            assertContainsEventually(() -> computeActual("SHOW TABLES FROM cassandra.tpch"), resultBuilder(getSession(), VARCHAR)
+            assertContainsEventually(() -> computeActual("SHOW TABLES FROM cassandra." + getSchema()), resultBuilder(getSession(), VARCHAR)
                     .row(mvName)
                     .build(), new Duration(1, MINUTES));
 
             // Materialized view may not return all results during the creation
-            assertContainsEventually(() -> computeActual("SELECT count(*) FROM tpch." + mvName), resultBuilder(getSession(), BIGINT)
+            assertContainsEventually(() -> computeActual("SELECT count(*) FROM %s.%s".formatted(getSchema(), mvName)), resultBuilder(getSession(), BIGINT)
                     .row(3L)
                     .build(), new Duration(1, MINUTES));
 
@@ -1240,7 +1242,7 @@ public class TestCassandraConnectorTest
             assertThat(query("SELECT id, key, data FROM " + table.getTableName() + " ORDER BY id LIMIT 1"))
                     .matches("VALUES (1, 100, 10)");
 
-            onCassandra("DROP MATERIALIZED VIEW tpch." + mvName);
+            onCassandra("DROP MATERIALIZED VIEW %s.%s".formatted(getSchema(), mvName));
         }
     }
 
@@ -1262,7 +1264,7 @@ public class TestCassandraConnectorTest
     void testSelectUserDefinedTypeInPrimaryKey()
     {
         String udtName = "type_user_defined_primary_key" + randomNameSuffix();
-        onCassandra("CREATE TYPE tpch." + udtName + " (field1 text)");
+        onCassandra("CREATE TYPE %s.%s (field1 text)".formatted(getSchema(), udtName));
         try (TestCassandraTable table = testTable(
                 "test_udt_in_primary_key",
                 ImmutableList.of(partitionColumn("intkey", "int"), partitionColumn("udtkey", "frozen<%s>".formatted(udtName))),
@@ -1272,7 +1274,7 @@ public class TestCassandraConnectorTest
             assertThat(query("SELECT * FROM " + table.getTableName() + " WHERE intkey = 1 AND udtkey = CAST(ROW('udt-1') AS ROW(x VARCHAR))"))
                     .matches("VALUES (1, CAST(ROW('udt-1') AS ROW(field1 VARCHAR)))");
         }
-        onCassandra("DROP TYPE tpch." + udtName);
+        onCassandra("DROP TYPE %s.%s".formatted(getSchema(), udtName));
     }
 
     @Test
@@ -1621,22 +1623,22 @@ public class TestCassandraConnectorTest
     public void testNativeQuerySelectFromNation()
     {
         assertQuery(
-                "SELECT * FROM TABLE(cassandra.system.query(query => 'SELECT name FROM tpch.nation WHERE nationkey = 0 ALLOW FILTERING'))",
+                "SELECT * FROM TABLE(cassandra.system.query(query => 'SELECT name FROM %s.nation WHERE nationkey = 0 ALLOW FILTERING'))".formatted(getSchema()),
                 "VALUES 'ALGERIA'");
         assertQuery(
-                "SELECT name FROM TABLE(cassandra.system.query(query => 'SELECT * FROM tpch.nation WHERE nationkey = 0 ALLOW FILTERING'))",
+                "SELECT name FROM TABLE(cassandra.system.query(query => 'SELECT * FROM %s.nation WHERE nationkey = 0 ALLOW FILTERING'))".formatted(getSchema()),
                 "VALUES 'ALGERIA'");
         assertQuery(
-                "SELECT name FROM TABLE(cassandra.system.query(query => 'SELECT * FROM tpch.nation')) WHERE nationkey = 0",
+                "SELECT name FROM TABLE(cassandra.system.query(query => 'SELECT * FROM %s.nation')) WHERE nationkey = 0".formatted(getSchema()),
                 "VALUES 'ALGERIA'");
-        assertThat(query("SELECT * FROM TABLE(cassandra.system.query(query => 'SELECT * FROM tpch.nation')) WHERE nationkey = 0"))
+        assertThat(query("SELECT * FROM TABLE(cassandra.system.query(query => 'SELECT * FROM %s.nation')) WHERE nationkey = 0".formatted(getSchema())))
                 .isNotFullyPushedDown(FilterNode.class);
     }
 
     @Test
     public void testNativeQueryColumnAlias()
     {
-        assertThat(query("SELECT region_name FROM TABLE(system.query(query => 'SELECT name AS region_name FROM tpch.region WHERE regionkey = 0 ALLOW FILTERING'))"))
+        assertThat(query("SELECT region_name FROM TABLE(system.query(query => 'SELECT name AS region_name FROM %s.region WHERE regionkey = 0 ALLOW FILTERING'))".formatted(getSchema())))
                 .matches("VALUES CAST('AFRICA' AS VARCHAR)");
     }
 
@@ -1644,10 +1646,10 @@ public class TestCassandraConnectorTest
     public void testNativeQueryColumnAliasNotFound()
     {
         assertQueryFails(
-                "SELECT name FROM TABLE(system.query(query => 'SELECT name AS region_name FROM tpch.region'))",
+                "SELECT name FROM TABLE(system.query(query => 'SELECT name AS region_name FROM %s.region'))".formatted(getSchema()),
                 ".* Column 'name' cannot be resolved");
         assertQueryFails(
-                "SELECT column_not_found FROM TABLE(system.query(query => 'SELECT name AS region_name FROM tpch.region'))",
+                "SELECT column_not_found FROM TABLE(system.query(query => 'SELECT name AS region_name FROM %s.region'))".formatted(getSchema()),
                 ".* Column 'column_not_found' cannot be resolved");
     }
 
@@ -1655,17 +1657,17 @@ public class TestCassandraConnectorTest
     public void testNativeQuerySelectFromTestTable()
     {
         String tableName = "test_select" + randomNameSuffix();
-        onCassandra("CREATE TABLE tpch." + tableName + "(col BIGINT PRIMARY KEY)");
-        onCassandra("INSERT INTO tpch." + tableName + "(col) VALUES (1)");
-        assertContainsEventually(() -> computeActual("SHOW TABLES FROM cassandra.tpch"), resultBuilder(getSession(), createUnboundedVarcharType())
+        onCassandra("CREATE TABLE %s.%s (col BIGINT PRIMARY KEY)".formatted(getSchema(), tableName));
+        onCassandra("INSERT INTO  %s.%s(col) VALUES (1)".formatted(getSchema(), tableName));
+        assertContainsEventually(() -> computeActual("SHOW TABLES FROM cassandra." + getSchema()), resultBuilder(getSession(), createUnboundedVarcharType())
                 .row(tableName)
                 .build(), new Duration(1, MINUTES));
 
         assertQuery(
-                "SELECT * FROM TABLE(cassandra.system.query(query => 'SELECT * FROM tpch." + tableName + "'))",
+                "SELECT * FROM TABLE(cassandra.system.query(query => 'SELECT * FROM %s.%s'))".formatted(getSchema(), tableName),
                 "VALUES 1");
 
-        onCassandra("DROP TABLE tpch." + tableName);
+        onCassandra("DROP TABLE %s.%s".formatted(getSchema(), tableName));
     }
 
     @Test
@@ -1674,17 +1676,17 @@ public class TestCassandraConnectorTest
         // This test creates columns with names that collide in a way not supported by the connector. Run it exclusively to prevent other tests from failing.
         executeExclusively(() -> {
             String tableName = "test_case" + randomNameSuffix();
-            onCassandra("CREATE TABLE tpch." + tableName + "(col_case BIGINT PRIMARY KEY, \"COL_CASE\" BIGINT)");
-            onCassandra("INSERT INTO tpch." + tableName + "(col_case, \"COL_CASE\") VALUES (1, 2)");
-            assertContainsEventually(() -> computeActual("SHOW TABLES FROM cassandra.tpch"), resultBuilder(getSession(), createUnboundedVarcharType())
+            onCassandra("CREATE TABLE %s.%s(col_case BIGINT PRIMARY KEY, \"COL_CASE\" BIGINT)".formatted(getSchema(), tableName));
+            onCassandra("INSERT INTO %s.%s(col_case, \"COL_CASE\") VALUES (1, 2)".formatted(getSchema(), tableName));
+            assertContainsEventually(() -> computeActual("SHOW TABLES FROM cassandra." + getSchema()), resultBuilder(getSession(), createUnboundedVarcharType())
                     .row(tableName)
                     .build(), new Duration(1, MINUTES));
 
             assertQuery(
-                    "SELECT * FROM TABLE(cassandra.system.query(query => 'SELECT * FROM tpch." + tableName + "'))",
+                    "SELECT * FROM TABLE(cassandra.system.query(query => 'SELECT * FROM %s.%s'))".formatted(getSchema(), tableName),
                     "VALUES (1, 2)");
 
-            onCassandra("DROP TABLE tpch." + tableName);
+            onCassandra("DROP TABLE %s.%s".formatted(getSchema(), tableName));
             // Wait until the table becomes invisible to Trino. Otherwise, testSelectInformationSchemaColumns may fail due to ambiguous column names.
             assertEventually(() -> assertThat(getQueryRunner().tableExists(getSession(), tableName)).isFalse());
         });
@@ -1695,7 +1697,7 @@ public class TestCassandraConnectorTest
     {
         String tableName = "test_create" + randomNameSuffix();
         assertThat(getQueryRunner().tableExists(getSession(), tableName)).isFalse();
-        assertThat(query("SELECT * FROM TABLE(cassandra.system.query(query => 'CREATE TABLE tpch." + tableName + "(col INT PRIMARY KEY)'))"))
+        assertThat(query("SELECT * FROM TABLE(cassandra.system.query(query => 'CREATE TABLE %s.%s(col INT PRIMARY KEY)'))".formatted(getSchema(), tableName)))
                 .failure().hasMessage("Cannot get column definition");
         assertThat(getQueryRunner().tableExists(getSession(), tableName)).isFalse();
     }
@@ -1705,7 +1707,7 @@ public class TestCassandraConnectorTest
     {
         String tableName = "test_insert" + randomNameSuffix();
         assertThat(getQueryRunner().tableExists(getSession(), tableName)).isFalse();
-        assertThat(query("SELECT * FROM TABLE(cassandra.system.query(query => 'INSERT INTO tpch." + tableName + "(col) VALUES (1)'))"))
+        assertThat(query("SELECT * FROM TABLE(cassandra.system.query(query => 'INSERT INTO %s.%s(col) VALUES (1)'))".formatted(getSchema(), tableName)))
                 .failure()
                 .hasMessage("Cannot get column definition")
                 .hasStackTraceContaining("unconfigured table");
@@ -1715,20 +1717,20 @@ public class TestCassandraConnectorTest
     public void testNativeQueryUnsupportedStatement()
     {
         String tableName = "test_unsupported_statement" + randomNameSuffix();
-        onCassandra("CREATE TABLE tpch." + tableName + "(col INT PRIMARY KEY)");
-        onCassandra("INSERT INTO tpch." + tableName + "(col) VALUES (1)");
-        assertContainsEventually(() -> computeActual("SHOW TABLES FROM cassandra.tpch"), resultBuilder(getSession(), createUnboundedVarcharType())
+        onCassandra("CREATE TABLE %s.%s(col INT PRIMARY KEY)".formatted(getSchema(), tableName));
+        onCassandra("INSERT INTO %s.%s(col) VALUES (1)".formatted(getSchema(), tableName));
+        assertContainsEventually(() -> computeActual("SHOW TABLES FROM cassandra." + getSchema()), resultBuilder(getSession(), createUnboundedVarcharType())
                 .row(tableName)
                 .build(), new Duration(1, MINUTES));
 
-        assertThat(query("SELECT * FROM TABLE(cassandra.system.query(query => 'INSERT INTO tpch." + tableName + "(col) VALUES (3)'))"))
+        assertThat(query("SELECT * FROM TABLE(cassandra.system.query(query => 'INSERT INTO %s.%s(col) VALUES (3)'))".formatted(getSchema(), tableName)))
                 .failure().hasMessage("Cannot get column definition");
-        assertThat(query("SELECT * FROM TABLE(cassandra.system.query(query => 'DELETE FROM tpch." + tableName + " WHERE col = 1'))"))
+        assertThat(query("SELECT * FROM TABLE(cassandra.system.query(query => 'DELETE FROM %s.%s WHERE col = 1'))".formatted(getSchema(), tableName)))
                 .failure().hasMessage("Cannot get column definition");
 
         assertQuery("SELECT * FROM " + tableName, "VALUES 1");
 
-        onCassandra("DROP TABLE IF EXISTS tpch." + tableName);
+        onCassandra("DROP TABLE IF EXISTS %s.%s".formatted(getSchema(), tableName));
     }
 
     @Test
@@ -1816,9 +1818,9 @@ public class TestCassandraConnectorTest
     @Test
     public void testNationJoinRegion()
     {
-        assertQuery("SELECT c.name, t.name " +
-                        "FROM nation c JOIN tpch.tiny.region t ON c.regionkey = t.regionkey " +
-                        "WHERE c.nationkey = 3",
+        assertQuery(format("SELECT c.name, t.name " +
+                        "FROM nation c JOIN %s.tiny.region t ON c.regionkey = t.regionkey " +
+                        "WHERE c.nationkey = 3", getSchema()),
                 "VALUES ('CANADA', 'AMERICA')");
     }
 
@@ -1901,6 +1903,11 @@ public class TestCassandraConnectorTest
                     format("{%d:%d,%d:%d}", rowNumber, rowNumber + 1L, rowNumber + 2, rowNumber + 3L),
                     "[false,true]"));
         }
+    }
+
+    protected String getSchema()
+    {
+        return TPCH_SCHEMA;
     }
 
     private TestCassandraTable testTable(String namePrefix, List<TestCassandraTable.ColumnDefinition> columnDefinitions, List<String> rowsToInsert)
